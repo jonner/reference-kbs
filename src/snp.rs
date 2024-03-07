@@ -126,10 +126,7 @@ impl Attester for SnpAttester {
     ) -> Result<(), AttesterError> {
         let snp: SnpAttestation = json::from_str(&attestation.tee_evidence).unwrap();
         let pkey: &TeePubKey = &attestation.tee_pubkey;
-        let gen = match SnpGeneration::try_from(&snp.gen) {
-            Ok(g) => g,
-            Err(_) => return Err(AttesterError::InvalidTee),
-        };
+        let gen = SnpGeneration::try_from(&snp.gen).map_err(|_| AttesterError::InvalidTee)?;
 
         let report_bytes = hex::decode(snp.report.into_bytes()).unwrap();
         let report: AttestationReport =
@@ -148,10 +145,9 @@ impl Attester for SnpAttester {
             return Err(AttesterError::SnpMeasurementInvalid);
         }
 
-        self.rsa = match rsa_from_tee_pubkey_components(pkey) {
-            Ok(key) => Some(key),
-            Err(_) => return Err(AttesterError::TeePubkeyInvalid),
-        };
+        self.rsa = Some(
+            rsa_from_tee_pubkey_components(pkey).map_err(|_| AttesterError::TeePubkeyInvalid)?,
+        );
 
         Ok(())
     }

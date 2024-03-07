@@ -87,16 +87,15 @@ impl Attester for SevAttester {
 
         let decoded_lm = hex::decode(launch_measurement).unwrap();
 
-        match session.verify_with_digest(self.build, measurement, &decoded_lm) {
-            Err(e) => {
-                println!("Launch measurement verification failed: {:?}", e);
-                Err(AttesterError::InvalidMeasurement(e))
-            }
-            Ok(session) => {
-                self.session_verified = Some(session);
-                Ok(())
-            }
-        }
+        self.session_verified = Some(
+            session
+                .verify_with_digest(self.build, measurement, &decoded_lm)
+                .map_err(|e| {
+                    println!("Launch measurement verification failed: {:?}", e);
+                    AttesterError::InvalidMeasurement(e)
+                })?,
+        );
+        Ok(())
     }
 
     fn encrypt_secret(&self, plain_secret: &[u8]) -> Result<Value, AttesterError> {

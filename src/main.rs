@@ -108,17 +108,15 @@ async fn auth(
                 .map_err(|e| BadRequest(Some(e.to_string())))?;
 
             let workload_id = sev_request.workload_id.clone();
-            let tee_config: Option<String> = match db
+            let tee_config: Option<String> = db
                 .run(move |conn| {
                     configs::table
                         .filter(configs::workload_id.eq(workload_id))
                         .first::<TeeConfig>(conn)
                 })
                 .await
-            {
-                Ok(e) => Some(e.tee_config),
-                Err(_) => None,
-            };
+                .map(|e| e.tee_config)
+                .ok();
 
             Box::new(SevAttester::new(
                 sev_request.workload_id.clone(),
@@ -133,30 +131,15 @@ async fn auth(
                 .map_err(|e| BadRequest(Some(e.to_string())))?;
 
             let workload_id = snp_request.workload_id.clone();
-            let tee_config: Option<String> = match db
+            let tee_config = db
                 .run(move |conn| {
                     configs::table
                         .filter(configs::workload_id.eq(workload_id))
                         .first::<TeeConfig>(conn)
                 })
                 .await
-            {
-                Ok(e) => Some(e.tee_config),
-                Err(_) => None,
-            };
-
-            /*
-             * There needs to be a TEE config for each TEE workload.
-             */
-            if tee_config.is_none() {
-                return Err(BadRequest(Some("No TEE config found".to_string())));
-            }
-
-            /*
-             * We've already checked for the None case, it is now safe to
-             * unwrap() the TEE config.
-             */
-            let tee_config = tee_config.unwrap();
+                .map(|e| e.tee_config)
+                .map_err(|_| BadRequest(Some("No TEE config found".to_string())))?;
 
             Box::new(SnpAttester::new(
                 snp_request.workload_id.clone(),
@@ -237,10 +220,13 @@ async fn attest(
 
     // We're just cloning an Arc, looks like a false positive to me...
     #[allow(clippy::significant_drop_in_scrutinee)]
-    let session_lock = match state.sessions.read().unwrap().get(session_id) {
-        Some(s) => s.clone(),
-        None => return Err(BadRequest(Some("Invalid cookie".to_string()))),
-    };
+    let session_lock = state
+        .sessions
+        .read()
+        .unwrap()
+        .get(session_id)
+        .cloned()
+        .ok_or_else(|| BadRequest(Some("Invalid cookie".to_string())))?;
 
     let workload_id = session_lock.lock().unwrap().workload_id();
 
@@ -277,10 +263,13 @@ async fn key(
 
     // We're just cloning an Arc, looks like a false positive to me...
     #[allow(clippy::significant_drop_in_scrutinee)]
-    let session_lock = match state.sessions.read().unwrap().get(session_id) {
-        Some(s) => s.clone(),
-        None => return Err(Unauthorized(Some("Invalid cookie".to_string()))),
-    };
+    let session_lock = state
+        .sessions
+        .read()
+        .unwrap()
+        .get(session_id)
+        .cloned()
+        .ok_or_else(|| Unauthorized(Some("Invalid cookie".to_string())))?;
 
     if !session_lock.lock().unwrap().is_valid() {
         return Err(Unauthorized(Some("Invalid session".to_string())));
